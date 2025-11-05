@@ -1,66 +1,25 @@
 package main
 
 import (
-	"encoding/json"
-	"errors"
+	"bytes"
+	"encoding/gob"
 	"fmt"
-	"io"
 	"os"
-	"strings"
 )
 
-// Структура для взаимодействия с данными из файла json
+// Структура для взаимодействия с данными
 type Storage struct {
-	data map[string]string
-	file string
+	key   string
+	value string
 }
 
-// Создание экземпляра структуры Storage
-func NewStorage(file string) *Storage {
-	return &Storage{
-		data: make(map[string]string),
-		file: file,
-	}
-}
-
-// Функция для загрузки данных из data.json
-func (storage *Storage) LoadData() error {
-	file, err := os.OpenFile(storage.file, os.O_RDONLY|os.O_CREATE, 0666)
-	if err != nil {
-		if errors.Is(err, io.EOF) {
-			return nil
-		}
-		return err
-	}
-
-	decoder := json.NewDecoder(file)
-	err = decoder.Decode(&storage.data)
-	if err != nil {
-		return err
-	}
-
-	err = file.Close()
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
+func (s Storage) String() string { return fmt.Sprintf("key=%s, value=%s", s.key, s.value) }
 
 // Функция для сохранения новых записей
-func (storage *Storage) SaveData() error {
-	file, err := os.OpenFile(storage.file, os.O_WRONLY|os.O_TRUNC, 0666)
-	if err != nil {
-		return nil
-	}
+func SaveData(buffer bytes.Buffer, storage Storage) error {
+	encoder := gob.NewEncoder(&buffer)
 
-	encoder := json.NewEncoder(file)
-	err = encoder.Encode(storage.data)
-	if err != nil {
-		return err
-	}
-
-	err = file.Close()
+	err := encoder.Encode(storage)
 	if err != nil {
 		return err
 	}
@@ -69,68 +28,65 @@ func (storage *Storage) SaveData() error {
 }
 
 // Функция для удаления записи по ключу
-func (storage *Storage) DeleteData(key string) {
-	delete(storage.data, key)
-}
-
+//func (storage *Storage) DeleteData(key string) {
+//	delete(storage.data, key)
+//}
 
 func main() {
-	storage := NewStorage("data.json")
-	
-	// Загрузка данных из файла
-	err := storage.LoadData()
-	if err != nil {
-		fmt.Printf("Ошибка при загрузке данных: %v\n", err)
-		return
-	}
+	var buff bytes.Buffer
+	storage := Storage{}
 
+	dec := gob.NewDecoder(&buff)
 	// Запуск программы без аргументов
 	if len(os.Args) == 1 {
-		if len(storage.data) == 0 {
+		if storage.key == "" {
 			fmt.Println("Данные в хранилище отсутствуют")
 			return
 		}
-
-		fmt.Println("Содержимое хранилища:")
-		for key, value := range storage.data {
-			fmt.Printf("  %s: %s\n", key, value)
+		decodeErr := dec.Decode(&storage)
+		if decodeErr != nil {
+			fmt.Printf("Ошибка при выводе данных: %s\n", decodeErr)
+			return
+		} else {
+			fmt.Println("Содержимое хранилища:")
+			fmt.Println(storage.String())
+			return
 		}
-		return
+
 	}
 
 	// Запуск программы с аргументами
 	args := os.Args[1:]
 	operation := args[0]
-	key := args[1]
+	storage.key = args[1]
 
 	switch operation {
-		case "set":
-			value := args[2:]
-			if len(value) != 0 {
-				storage.data[key] = strings.Join(value, " ")
-				fmt.Printf("Добавлены данные\n %s: %s\n", key, value)
-			} else {
-				fmt.Printf("Значение ключа %s не задано\n", key)
-				return
-			}
-		case "delete":
-			_, exists := storage.data[key]
-			if exists {
-				storage.DeleteData(key)
-				fmt.Printf("Удалены данные %s\n", key)
-			} else {
-				fmt.Printf("Ключ %s не найден\n", key)
-				return
-			}
-		default:
-			fmt.Printf("Неизвестная операция %s\n", operation)
+	case "set":
+		if len(args) >= 3 {
+			storage.value = args[2]
+			fmt.Printf("Добавление данных\n %s: %s\n", storage.key, storage.value)
+		} else {
+			fmt.Printf("Значение для ключа %s не задано\n", storage.key)
 			return
+		}
+	//case "delete":
+	//	_, exists := storage.key
+	//	if exists {
+	//		storage.DeleteData(storage.key)
+	//		fmt.Printf("Удалены данные %s\n", storage.key)
+	//	} else {
+	//		fmt.Printf("Ключ %s не найден\n", storage.key)
+	//		return
+	//	}
+	default:
+		fmt.Printf("Неизвестная операция %s\n", operation)
+		return
 	}
 
 	// Сохранение данных
-	err = storage.SaveData()
-	if err != nil {
-		fmt.Printf("Ошибка при сохранении данных: %s\n", err)
+	saveErr := SaveData(buff, storage)
+	if saveErr != nil {
+		fmt.Printf("Ошибка при сохранении данных: %s\n", saveErr)
 		return
 	} else {
 		fmt.Println("Изменения сохранены")
